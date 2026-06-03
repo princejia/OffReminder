@@ -8,7 +8,7 @@ goto end
 
 :uninstall
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "Unregister-ScheduledTask -TaskName 'OffReminder_Morning' -Confirm:$false -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'OffReminder_OffTime' -Confirm:$false -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'OffReminder_UpdateHolidays' -Confirm:$false -ErrorAction SilentlyContinue; Write-Host '已卸载任务' -ForegroundColor Yellow"
+    "Unregister-ScheduledTask -TaskName 'OffReminder_Morning' -Confirm:$false -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'OffReminder_OffTime' -Confirm:$false -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'OffReminder_UpdateHolidays' -Confirm:$false -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'OffReminder_Unlock' -Confirm:$false -ErrorAction SilentlyContinue; Write-Host '已卸载任务' -ForegroundColor Yellow"
 pause
 
 :end

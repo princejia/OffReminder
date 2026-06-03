@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 下班提醒小程序
-- 早上 8:40 由系统任务计划启动，弹窗输入上班时间
+- 早上 8:30 由系统任务计划启动，弹窗输入上班时间
 - 输入后自动注册一次性任务计划，下班前 2 分钟再次启动并提醒
 - 主界面可随时查看上班时间、下班时间、剩余时间
 """
@@ -17,11 +17,12 @@ from datetime import datetime, timedelta
 WORK_HOURS = 9                          # 工作时长（小时）
 EARLY_LEAVE_MINUTES = 20                # 提前下班分钟数
 REMIND_BEFORE_MINUTES = 2               # 下班前几分钟弹提醒
-PROMPT_TIME = (8, 40)                   # 早上提示时间 (时, 分)
+PROMPT_TIME = (8, 30)                   # 早上提示时间 (时, 分)
 PRESET_START_TIMES = ["8:20", "8:25", "8:30"]
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "work_record.json")
 
-TASK_MORNING = "OffReminder_Morning"    # 每日早上 8:40 任务名
+TASK_MORNING = "OffReminder_Morning"    # 每日早上 8:30 任务名
+TASK_UNLOCK  = "OffReminder_Unlock"     # 解锁工作站任务名
 TASK_OFF     = "OffReminder_OffTime"    # 一次性下班提醒任务名
 HOLIDAYS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "holidays.json")
 
@@ -406,7 +407,7 @@ class OffReminderApp:
     def tick(self):
         now = datetime.now()
 
-        # 早上 8:40 提示输入上班时间（若今天还没设置过）
+        # 早上 8:30 提示输入上班时间（若今天还没设置过）
         if (not self.prompted_today
                 and now.hour == PROMPT_TIME[0]
                 and now.minute >= PROMPT_TIME[1]
@@ -455,8 +456,15 @@ def main():
         return
 
     # 被任务计划拉起时，非法定工作日直接退出，不骚扰
-    if ("--morning" in args or "--remind" in args) and not is_workday():
+    if ("--morning" in args or "--remind" in args or "--unlock" in args) and not is_workday():
         return
+
+    # 解锁触发：今天已记录过上班时间则静默退出，否则把当前时间作为默认值弹窗
+    if "--unlock" in args:
+        record = load_record()
+        today_key = datetime.now().strftime("%Y-%m-%d")
+        if record.get(today_key, {}).get("start"):
+            return
 
     # 启动后台自动检查节假日数据
     auto_update_holidays_if_needed()
@@ -477,6 +485,10 @@ def main():
         root.after(500, _do_remind)
     elif "--morning" in args:
         # 被任务计划拉起：直接弹出输入框
+        if not app.start_time:
+            root.after(300, app.prompt_start_time)
+    elif "--unlock" in args:
+        # 解锁工作站触发：弹出输入框（默认值即当前时间）
         if not app.start_time:
             root.after(300, app.prompt_start_time)
 

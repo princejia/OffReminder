@@ -16,7 +16,7 @@ if (-not (Test-Path $target)) {
 $taskName = "OffReminder_Morning"
 
 $action = New-ScheduledTaskAction -Execute $py -Argument "`"$target`" --morning"
-$trigger = New-ScheduledTaskTrigger -Daily -At "08:40"
+$trigger = New-ScheduledTaskTrigger -Daily -At "08:30"
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -AllowStartIfOnBatteries `
@@ -24,9 +24,9 @@ $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 0)
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
-    -Settings $settings -Description "每天 8:40 弹窗输入上班时间" -Force | Out-Null
+    -Settings $settings -Description "每天 8:30 弹窗输入上班时间" -Force | Out-Null
 
-Write-Host "已注册任务：$taskName  每天 08:40 启动" -ForegroundColor Green
+Write-Host "已注册任务：$taskName  每天 08:30 启动" -ForegroundColor Green
 Write-Host "执行：$py `"$target`" --morning"
 
 # ---- 每月 1 号 09:00 静默更新节假日数据 ----
@@ -36,6 +36,17 @@ $updTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At "09:00"
 Register-ScheduledTask -TaskName $updTask -Action $updAction -Trigger $updTrigger `
     -Settings $settings -Description "每周自动更新中国节假日数据" -Force | Out-Null
 Write-Host "已注册任务：$updTask  每周一 09:00 静默更新节假日" -ForegroundColor Green
+
+# ---- 解锁工作站时弹窗（当天首次） ----
+$unlockTask = "OffReminder_Unlock"
+$cls = Get-CimClass -Namespace ROOT\Microsoft\Windows\TaskScheduler -ClassName MSFT_TaskSessionStateChangeTrigger
+$unlockTrigger = New-CimInstance -CimClass $cls -ClientOnly
+$unlockTrigger.StateChange = 8  # 8 = SessionUnlock
+$unlockTrigger.UserId = "$env:USERDOMAIN\$env:USERNAME"
+$unlockAction = New-ScheduledTaskAction -Execute $py -Argument "`"$target`" --unlock"
+Register-ScheduledTask -TaskName $unlockTask -Action $unlockAction -Trigger $unlockTrigger `
+    -Settings $settings -Description "解锁工作站时弹窗记录上班时间（当天首次）" -Force | Out-Null
+Write-Host "已注册任务：$unlockTask  解锁工作站时启动（当天已记录则静默退出）" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "（下班前 2 分钟的提醒会在你输入上班时间后自动注册）"
