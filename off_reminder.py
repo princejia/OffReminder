@@ -424,12 +424,15 @@ class OffReminderApp:
         self.refresh_labels()
         self.root.after(1000, self.tick)
 
-    def prompt_start_time(self):
+    def prompt_start_time(self, close_after=False):
         self.root.deiconify()
         self.root.lift()
         self.root.attributes("-topmost", True)
         self.root.attributes("-topmost", False)
         self.set_start_time()
+        if close_after:
+            # 任务计划拉起场景：关闭成功提示后自动关闭输入窗口
+            self.root.destroy()
 
     def notify_off(self):
         self.root.deiconify()
@@ -484,13 +487,13 @@ def main():
                 app.save_today()
         root.after(500, _do_remind)
     elif "--morning" in args:
-        # 被任务计划拉起：直接弹出输入框
+        # 被任务计划拉起：直接弹出输入框，设置完成后自动关闭窗口
         if not app.start_time:
-            root.after(300, app.prompt_start_time)
+            root.after(300, lambda: app.prompt_start_time(close_after=True))
     elif "--unlock" in args:
-        # 解锁工作站触发：弹出输入框（默认值即当前时间）
+        # 解锁工作站触发：弹出输入框（默认值即当前时间），设置完成后自动关闭窗口
         if not app.start_time:
-            root.after(300, app.prompt_start_time)
+            root.after(300, lambda: app.prompt_start_time(close_after=True))
 
     root.mainloop()
 
