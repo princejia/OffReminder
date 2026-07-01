@@ -412,8 +412,11 @@ class OffReminderApp:
                 and now.hour == PROMPT_TIME[0]
                 and now.minute >= PROMPT_TIME[1]
                 and now.hour < 12):
-            self.prompted_today = True  # 先标记，避免循环弹
-            self.root.after(100, self.prompt_start_time)
+            # 解锁弹窗等其它进程可能已写入今天的上班时间，先重新读取记录
+            self.load_today()
+            if not self.start_time:
+                self.prompted_today = True  # 先标记，避免循环弹
+                self.root.after(100, self.prompt_start_time)
 
         # 满 9 小时提醒
         if self.off_time and not self.notified and now >= self.off_time:
@@ -447,6 +450,8 @@ class OffReminderApp:
             f"可以下班啦！（已工作 {WORK_HOURS} 小时 - {EARLY_LEAVE_MINUTES} 分钟）"
         )
         self.root.attributes("-topmost", False)
+        # 关闭提醒后一并关闭主窗口
+        self.root.destroy()
 
 
 def main():
