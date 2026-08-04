@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import subprocess
+import threading
 import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime, timedelta
@@ -44,8 +45,11 @@ def _load_holidays_raw():
 
 
 def _save_holidays_raw(data):
-    with open(HOLIDAYS_FILE, "w", encoding="utf-8") as f:
+    # 先写临时文件再原子替换，避免后台线程写到一半时其它进程读到残缺 JSON
+    tmp = HOLIDAYS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, HOLIDAYS_FILE)
 
 
 def _load_holidays():
@@ -67,7 +71,7 @@ def is_workday(d=None):
 
 
 def _fetch_year(year, timeout=8):
-    """从远端拉取某年节假日 JSON。返回 days 列表或抛异常。"""
+    """拉取某年节假日 JSON。返回 days 列表（官方未公布时为空），网络/解析出错则抛异常。"""
     import urllib.request
     last_err = None
     for url in (HOLIDAYS_URL_TEMPLATE.format(year=year),
@@ -76,9 +80,7 @@ def _fetch_year(year, timeout=8):
             req = urllib.request.Request(url, headers={"User-Agent": "OffReminder/1.0"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
-            days = payload.get("days") or []
-            if days:
-                return days
+            return payload.get("days") or []
         except Exception as e:
             last_err = e
             continue
@@ -103,12 +105,16 @@ def update_holidays(years=None):
         return {x for x in s if not x.startswith(f"{y}-")}
 
     fetched = []
+    pending = []
     failed = []
     for y in years:
         try:
             days = _fetch_year(y)
         except Exception as e:
             failed.append(f"{y}({e.__class__.__name__})")
+            continue
+        if not days:
+            pending.append(str(y))  # 国务院尚未公布该年安排
             continue
         skip = _strip_year(skip, y)
         force = _strip_year(force, y)
@@ -123,33 +129,55 @@ def update_holidays(years=None):
         updated_years.add(y)
         fetched.append(str(y))
 
-    new_data = {
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not fetched and not data:
+        # 本地没数据、远端又全挂，不要写一个空壳文件盖掉可能存在的备份
+        return False, f"更新失败：{', '.join(failed)}"
+
+    data.update({
         "_说明": "skip = 节假日不上班；force = 调休补班。由 update_holidays 自动维护，"
                  "数据源：github.com/NateScarlet/holiday-cn",
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "last_try": now_str,
         "updated_years": sorted(updated_years),
         "skip": sorted(skip),
         "force": sorted(force),
-    }
-    _save_holidays_raw(new_data)
+    })
+    if fetched:
+        data["updated_at"] = now_str
+    _save_holidays_raw(data)
 
-    if not fetched:
-        return False, f"全部失败：{', '.join(failed)}"
-    msg = f"已更新 {', '.join(fetched)} 年"
+    notes = []
+    if pending:
+        notes.append(f"{', '.join(pending)} 年安排尚未公布")
     if failed:
-        msg += f"（{', '.join(failed)} 失败）"
-    return True, msg
+        notes.append(f"{', '.join(failed)} 拉取失败")
+    suffix = f"（{'；'.join(notes)}）" if notes else ""
+
+    if fetched:
+        return True, f"已更新 {', '.join(fetched)} 年" + suffix
+    if not failed:
+        return True, f"无需更新：{', '.join(pending)} 年安排尚未公布"
+    return False, f"更新失败：{', '.join(failed)}"
 
 
 def auto_update_holidays_if_needed():
-    """启动时调用：若当前年份未拉取过，则在后台静默更新一次。"""
+    """启动时调用：缺当年数据，或年底了还缺明年数据，则后台静默更新一次。"""
     data = _load_holidays_raw()
     updated_years = set(data.get("updated_years", []))
-    this_year = datetime.now().year
-    if this_year in updated_years:
+    now = datetime.now()
+    need = (now.year not in updated_years
+            # 国务院一般 11 月前后公布次年安排，提前拉取，避免元旦当天断网无数据
+            or (now.month >= 11 and (now.year + 1) not in updated_years))
+    if not need:
         return
-    import threading
-    threading.Thread(target=lambda: update_holidays([this_year, this_year + 1]),
+    last_try = data.get("last_try")
+    if last_try:
+        try:
+            if (now - datetime.strptime(last_try, "%Y-%m-%d %H:%M:%S")).days < 3:
+                return  # 数据未发布时避免每次启动都去请求
+        except ValueError:
+            pass
+    threading.Thread(target=lambda: update_holidays([now.year, now.year + 1]),
                      daemon=True).start()
 
 
@@ -162,6 +190,28 @@ def _pythonw_path():
 
 def _script_path():
     return os.path.abspath(__file__)
+
+
+def off_task_pending():
+    """今天是否已注册且尚未触发的下班提醒任务（说明上班时间已设置过）。"""
+    ps = (
+        f'$i = Get-ScheduledTaskInfo -TaskName "{TASK_OFF}" -ErrorAction SilentlyContinue; '
+        f'if ($i -and $i.NextRunTime) {{ $i.NextRunTime.ToString("yyyy-MM-ddTHH:mm:ss") }}'
+    )
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        out = (r.stdout or "").strip()
+        if not out:
+            return False
+        nxt = datetime.strptime(out.splitlines()[-1].strip(), "%Y-%m-%dT%H:%M:%S")
+    except Exception:
+        return False
+    now = datetime.now()
+    return nxt > now and nxt.date() == now.date()
 
 
 def register_off_task(off_time):
@@ -280,6 +330,7 @@ class OffReminderApp:
         self.off_time = None    # datetime
         self.notified = False
         self.prompted_today = False
+        self.last_date = datetime.now().date()
 
         # 界面
         self.lbl_title = tk.Label(root, text="下班提醒", font=("Microsoft YaHei", 16, "bold"))
@@ -376,10 +427,27 @@ class OffReminderApp:
         self.refresh_labels()
 
     def update_holidays_action(self):
-        """手动触发节假日更新。"""
+        """手动触发节假日更新（放后台线程，避免断网时界面假死）。"""
+        if getattr(self, "_updating", False):
+            return
+        self._updating = True
+        self._update_result = None
         self.lbl_now.config(text="正在更新节假日…")
-        self.root.update_idletasks()
-        ok, msg = update_holidays()
+        threading.Thread(target=self._do_update_holidays, daemon=True).start()
+        self.root.after(200, self._poll_update_holidays)
+
+    def _do_update_holidays(self):
+        try:
+            self._update_result = update_holidays()
+        except Exception as e:
+            self._update_result = (False, str(e))
+
+    def _poll_update_holidays(self):
+        if self._update_result is None:
+            self.root.after(200, self._poll_update_holidays)
+            return
+        self._updating = False
+        ok, msg = self._update_result
         if ok:
             messagebox.showinfo("节假日更新", msg)
         else:
@@ -407,16 +475,29 @@ class OffReminderApp:
     def tick(self):
         now = datetime.now()
 
+        # 跨天（程序长期开着）：重置当天状态
+        if now.date() != self.last_date:
+            self.last_date = now.date()
+            self.start_time = None
+            self.off_time = None
+            self.notified = False
+            self.prompted_today = False
+            self.load_today()
+
         # 早上 8:30 提示输入上班时间（若今天还没设置过）
         if (not self.prompted_today
                 and now.hour == PROMPT_TIME[0]
                 and now.minute >= PROMPT_TIME[1]
                 and now.hour < 12):
-            # 解锁弹窗等其它进程可能已写入今天的上班时间，先重新读取记录
-            self.load_today()
-            if not self.start_time:
-                self.prompted_today = True  # 先标记，避免循环弹
-                self.root.after(100, self.prompt_start_time)
+            if not is_workday():
+                self.prompted_today = True  # 周末/节假日不打扰
+            else:
+                # 解锁弹窗等其它进程可能已写入今天的上班时间，先重新读取记录
+                self.load_today()
+                if not self.start_time:
+                    self.prompted_today = True  # 先标记，避免循环弹
+                    if not off_task_pending():
+                        self.root.after(100, self.prompt_start_time)
 
         # 满 9 小时提醒
         if self.off_time and not self.notified and now >= self.off_time:
@@ -463,15 +544,18 @@ def main():
         print(("OK: " if ok else "FAIL: ") + msg)
         return
 
-    # 被任务计划拉起时，非法定工作日直接退出，不骚扰
-    if ("--morning" in args or "--remind" in args or "--unlock" in args) and not is_workday():
+    # 早上/解锁被任务计划拉起时，非法定工作日直接退出，不骚扰
+    # （--remind 不判断：它只在你亲手设置上班时间后才注册，加班日也应照常提醒）
+    if ("--morning" in args or "--unlock" in args) and not is_workday():
         return
 
-    # 解锁触发：今天已记录过上班时间则静默退出，否则把当前时间作为默认值弹窗
-    if "--unlock" in args:
+    # 解锁/早上触发：今天已记录过上班时间，或下班提醒任务已注册，则静默退出
+    if "--unlock" in args or "--morning" in args:
         record = load_record()
         today_key = datetime.now().strftime("%Y-%m-%d")
         if record.get(today_key, {}).get("start"):
+            return
+        if off_task_pending():
             return
 
     # 启动后台自动检查节假日数据

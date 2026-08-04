@@ -29,7 +29,7 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
 Write-Host "已注册任务：$taskName  每天 08:30 启动" -ForegroundColor Green
 Write-Host "执行：$py `"$target`" --morning"
 
-# ---- 每月 1 号 09:00 静默更新节假日数据 ----
+# ---- 每周一 09:00 静默更新节假日数据 ----
 $updTask = "OffReminder_UpdateHolidays"
 $updAction = New-ScheduledTaskAction -Execute $py -Argument "`"$target`" --update-holidays"
 $updTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At "09:00"

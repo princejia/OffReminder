@@ -1,6 +1,6 @@
 {
   "_说明": "skip = 节假日不上班；force = 调休补班。由 update_holidays 自动维护，数据源：github.com/NateScarlet/holiday-cn",
-  "updated_at": "2026-06-08 09:00:02",
+  "updated_at": "2026-08-04 08:48:34",
   "updated_years": [
     2026
   ],
@@ -46,5 +46,6 @@
     "2026-05-09",
     "2026-09-20",
     "2026-10-10"
-  ]
+  ],
+  "last_try": "2026-08-04 08:48:34"
 }

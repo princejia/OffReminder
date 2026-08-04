@@ -48,13 +48,14 @@
 ## 命令行参数
 
 - `python off_reminder.py` — 普通启动（含界面 + 实时倒计时）
-- `python off_reminder.py --morning` — 任务计划用，启动后自动弹输入框
-- `python off_reminder.py --unlock` — 解锁工作站时拉起；当天已记录则静默退出
+- `python off_reminder.py --morning` — 任务计划用，启动后自动弹输入框；当天已记录或已注册下班任务则静默退出
+- `python off_reminder.py --unlock` — 解锁工作站时拉起；当天已记录或已注册下班任务则静默退出
 - `python off_reminder.py --remind` — 任务计划用，启动后到点弹下班提醒
 
 ## 法定工作日
 
-- 程序在 `--morning` 和 `--remind` 模式下会判断「今天是否法定工作日」，**周末或节假日直接静默退出**，不会打扰你
+- 程序在 `--morning` 和 `--unlock` 模式下会判断「今天是否法定工作日」，**周末或节假日直接静默退出**，不会打扰你（主界面常开时，8:30 的自动提示同样跳过）
+- `--remind` **不受此限制**：它只在你亲手设置了上班时间后才会被注册，周末加班也能正常提醒下班
 - 判断规则：周一~周五 − [holidays.json](holidays.json) 中的 `skip` + `force`
   - `skip`：法定节假日（即使周中也不算工作日）
   - `force`：调休补班日（即使周末也算工作日）
@@ -64,12 +65,12 @@
 数据源：[NateScarlet/holiday-cn](https://github.com/NateScarlet/holiday-cn)（开源维护，国务院公告发布后会同步）
 
 更新方式（任选其一）：
-- **主界面点「更新节假日」按钮**（手动）
-- **首次启动当年程序时自动后台更新**（无网时静默失败，不影响使用）
+- **主界面点「更新节假日」按钮**（手动，后台线程执行，不卡界面）
+- **启动时自动后台更新**：缺当年数据、或已进入 11 月后仍缺明年数据时触发；失败后 3 天内不重试，无网时静默失败不影响使用
 - **任务计划「OffReminder_UpdateHolidays」**：[安装计划任务.bat](安装计划任务.bat) 已注册，每周一 09:00 静默更新
 - **命令行**：`python off_reminder.py --update-holidays`
 
-> 离线/无网环境也能用，[holidays.json](holidays.json) 里已预置 2026 年数据；之后任意一次联网都会自动补齐
+> 离线/无网环境也能用，[holidays.json](holidays.json) 里已预置 2026 年数据；之后任意一次联网都会自动补齐。更新采用「临时文件 + 原子替换」，拉取失败时不会破坏已有数据
 
 ## 验证
 
