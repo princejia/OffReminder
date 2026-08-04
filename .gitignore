@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+
+# 本地运行数据
+work_record.json
+holidays.json.tmp
